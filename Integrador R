@@ -1,0 +1,79 @@
+#install.packages("caret")
+
+library(tidyverse)
+library(caret)
+
+
+#trocar para o diretorio que contém o df
+#setwd("C:/Users/vinicius.camargo/Desktop/Insper")
+
+#carregando as bases
+df <- read.csv("df5.csv")
+df %>% glimpse()
+
+geoloc <- read.csv("geolocation.csv")
+colnames(geoloc) <- c("zip_code","Lat","Long")
+geoloc <- tail(geoloc,-2)
+
+
+geoloc %>% glimpse()
+
+
+#tive que converter as datas pq estavam em chr e criar novamente a feature delta_forecast
+df$order_delivered_customer_date <- df$order_delivered_customer_date %>% as.Date()
+df$order_estimated_delivery_date <- df$order_estimated_delivery_date %>% as.Date()
+
+df$delta_forecast <- df$order_delivered_customer_date - df$order_estimated_delivery_date
+df$delta_forecast <- df$delta_forecast %>% as.numeric()
+
+
+
+#precisamos trabahar com um df de sellers com as features de clusterização
+#OBS: falta criar a feature que diz se um seller esta vendendo algo caro ou barato e add no df
+df_cluster <- df %>% 
+  select(seller_id, delta_forecast, review_score) %>%
+  group_by(seller_id) %>% 
+  summarise(delta_forecast = mean(delta_forecast),
+            review_score = mean(review_score))
+
+
+
+## k-means------------------------------------------------------
+
+#one-hot-encoding
+
+#utilizar este comentário para transformar o df em OHE caso haja variávei categóricas
+#dmy <- dummyVars(" ~ .", data = df_cluster)
+#df_cluster_dmy <- data.frame(predict(dmy, newdata = df_cluster))
+#df_cluster_dmy %>% glimpse()
+
+#Scaling para escala nao interferir no resultado
+#retiramos a coluna seller_id para realizar o scaled
+df_cluster_scaled <- df_cluster %>% select(-seller_id)
+df_cluster_scaled[is.na(df_cluster_scaled)] <- 0
+df_cluster_scaled <- df_cluster_scaled %>% scale() 
+df_cluster_scaled <- as.data.frame(df_cluster_scaled)
+
+#escolha do número de clusters com base no cotovelo
+
+set.seed(42)
+
+tibble(k = 2:30) %>% 
+  mutate(w = map_dbl(k, ~ kmeans(df_cluster_scaled, centers = .x)$tot.withinss)) %>% 
+  ggplot(aes(k, w)) + 
+  geom_point() + 
+  geom_line()
+
+#Escolhemos 5 clusters de acordo com o grafico de cotovelo
+#A escolha de clusters é arbitraria. Podemos também definir a qtd de cluster de acordo com a visao do negocio
+#para mudar a qtd de clusters, basta mudar o parametro center =
+
+set.seed(42)
+df_kmeans <- df_cluster_scaled %>% 
+    mutate(cluster = factor(kmeans(df_cluster_scaled, centers = 5)$cluster))
+
+#adicionando novamente a coluna seller_id
+
+df_kmenas_final <- df_kmeans %>% mutate(seller_id = df_cluster$seller_id)
+
+glimpse(df_kmenas_final)
